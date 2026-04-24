@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>PersiaFoods Price Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #222; --border: #2e2e2e;
+    --accent: #e8a020; --red: #e05050; --green: #50c878;
+    --text: #e8e8e8; --text2: #999; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh; padding-bottom: 40px; }
+
+  #loadingScreen { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 999; gap: 16px; }
+  .logo-big { width: 64px; height: 64px; background: var(--accent); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 24px; color: #000; }
+  #loadingScreen p { color: var(--text2); font-size: 13px; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 16px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; }
+  .logo { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: #000; }
+  header h1 { font-size: 15px; font-weight: 600; }
+  header p { font-size: 11px; color: var(--text2); }
+  .header-sync { margin-left: auto; font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 4px; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .sync-dot.offline { background: var(--red); }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .tab { flex: 1; padding: 12px 8px; text-align: center; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .content { padding: 16px; max-width: 600px; margin: 0 auto; }
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .card-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; font-family: inherit; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-full { width: 100%; justify-content: center; }
+  .btn-sm { padding: 6px 10px; font-size: 12px; }
+
+  .input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none; transition: border 0.15s; }
+  .input:focus { border-color: var(--accent); }
+  .input-label { font-size: 12px; color: var(--text2); margin-bottom: 6px; display: block; }
+  .input-group { margin-bottom: 12px; }
+  select.input { cursor: pointer; }
+  option { background: var(--surface2); }
+
+  .supplier-item { display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .supplier-name { font-weight: 500; font-size: 14px; }
+  .supplier-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .supplier-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+  .upload-area { border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
+  .upload-area:hover { border-color: var(--accent); background: rgba(232,160,32,0.05); }
+  .upload-area input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 28px; margin-bottom: 8px; }
+  .upload-text { font-size: 13px; color: var(--text2); }
+  .upload-text strong { color: var(--accent); }
+
+  .camera-area { border-radius: var(--radius); overflow: hidden; background: #000; margin-bottom: 12px; }
+  #cameraFeed { width: 100%; display: block; max-height: 280px; object-fit: cover; }
+  #capturedImg { width: 100%; display: none; max-height: 280px; object-fit: cover; border-radius: var(--radius); margin-bottom: 12px; }
+
+  .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+  .badge-red { background: rgba(224,80,80,0.15); color: var(--red); }
+  .badge-green { background: rgba(80,200,120,0.15); color: var(--green); }
+  .badge-gray { background: var(--surface2); color: var(--text2); }
+
+  .price-item { padding: 12px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto; gap: 4px; align-items: center; }
+  .price-item:last-child { border-bottom: none; }
+  .price-item.changed { background: rgba(224,80,80,0.05); }
+  .price-item.same { opacity: 0.55; }
+  .item-name { font-size: 13px; font-weight: 500; }
+  .item-meta { font-size: 11px; color: var(--text2); }
+  .price-col { text-align: right; }
+  .price-old { font-size: 11px; color: var(--text2); text-decoration: line-through; font-family: 'IBM Plex Mono', monospace; }
+  .price-new { font-size: 14px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+  .price-diff { font-size: 11px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+  .price-up { color: var(--red); }
+  .price-down { color: var(--green); }
+
+  .status-bar { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .status-bar-row { display: flex; align-items: center; gap: 8px; }
+  .status-loading { background: rgba(232,160,32,0.1); color: var(--accent); border: 1px solid rgba(232,160,32,0.2); }
+  .status-success { background: rgba(80,200,120,0.1); color: var(--green); border: 1px solid rgba(80,200,120,0.2); }
+  .status-error { background: rgba(224,80,80,0.1); color: var(--red); border: 1px solid rgba(224,80,80,0.2); }
+  .spinner { width: 14px; height: 14px; border: 2px solid rgba(232,160,32,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-bar { height: 3px; background: rgba(232,160,32,0.2); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; padding: 20px 16px; width: 100%; max-height: 85vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.2s; }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .modal-close { cursor: pointer; color: var(--text2); font-size: 20px; }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--text2); }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-text { font-size: 14px; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; }
+  .stat-label { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+  .filter-bar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-btn { padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text2); font-family: inherit; transition: all 0.15s; }
+  .filter-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+  .history-item { padding: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+  .history-date { font-size: 11px; color: var(--text2); }
+  .history-title { font-size: 14px; font-weight: 500; margin: 4px 0; }
+  .history-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .text-sm { font-size: 12px; color: var(--text2); }
+  .mt-12 { margin-top: 12px; }
+  .flex { display: flex; }
+  .gap-8 { gap: 8px; }
+  .flex-1 { flex: 1; }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="logo-big">PF</div>
+  <p>Connecting to database...</p>
+</div>
+
+<header>
+  <div class="logo">PF</div>
+  <div><h1>Price Tracker</h1><p>PersiaFoods Lonsdale</p></div>
+  <div class="header-sync"><div class="sync-dot" id="syncDot"></div><span id="syncLabel">Live</span></div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('scan',this)">📷 Scan</div>
+  <div class="tab" onclick="switchTab('suppliers',this)">🏪 Suppliers</div>
+  <div class="tab" onclick="switchTab('history',this)">📋 History</div>
+</div>
+
+<div class="content">
+
+<!-- SCAN -->
+<div class="section active" id="tab-scan">
+  <div class="card">
+    <div class="card-title">New Delivery Check</div>
+    <div class="input-group">
+      <label class="input-label">Supplier</label>
+      <select class="input" id="scanSupplier"><option value="">— Select Supplier —</option></select>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Invoice</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button class="btn btn-outline btn-sm" id="btnCamera" onclick="setInputMethod('camera')" style="border-color:var(--accent);color:var(--accent)">📷 Camera</button>
+        <button class="btn btn-outline btn-sm" id="btnUpload" onclick="setInputMethod('upload')">📄 Upload</button>
+      </div>
+      <div id="cameraSection">
+        <div class="camera-area" id="cameraArea" style="display:none;"><video id="cameraFeed" autoplay playsinline></video></div>
+        <img id="capturedImg" alt="Captured">
+        <div class="flex gap-8">
+          <button class="btn btn-outline flex-1" id="btnStartCamera" onclick="startCamera()">📷 Open Camera</button>
+          <button class="btn btn-primary flex-1" id="btnCapture" onclick="capturePhoto()" style="display:none;">⚡ Capture</button>
+          <button class="btn btn-outline btn-sm" id="btnRetake" onclick="retakePhoto()" style="display:none;">↩ Retake</button>
+        </div>
+      </div>
+      <div id="uploadSection" style="display:none;">
+        <div class="upload-area">
+          <input type="file" id="fileInput" accept=".pdf,image/*" onchange="handleFileUpload(event)">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text" id="uploadText"><strong>Tap to upload</strong><br>PDF or image of invoice</div>
+        </div>
+      </div>
+    </div>
+    <div id="scanStatus" style="display:none;"></div>
+    <button class="btn btn-primary btn-full mt-12" onclick="runScan()" id="btnScan">🔍 Check Prices</button>
+  </div>
+  <div id="scanResults" style="display:none;">
+    <div class="results-header">
+      <div style="font-weight:600;font-size:15px;">Results</div>
+      <div id="resultDate" class="text-sm"></div>
+    </div>
+    <div class="stats-row" id="statsRow"></div>
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="filterResults('all',this)">All</button>
+      <button class="filter-btn" onclick="filterResults('changed',this)">Changed</button>
+      <button class="filter-btn" onclick="filterResults('up',this)">Higher ↑</button>
+      <button class="filter-btn" onclick="filterResults('down',this)">Lower ↓</button>
+      <button class="filter-btn" onclick="filterResults('same',this)">Same</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;"><div id="resultsList"></div></div>
+  </div>
+</div>
+
+<!-- SUPPLIERS -->
+<div class="section" id="tab-suppliers">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div style="font-weight:600;font-size:15px;">Suppliers</div>
+    <button class="btn btn-primary btn-sm" onclick="openAddSupplier()">+ Add</button>
+  </div>
+  <div id="supplierList"><div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">Loading...</div></div></div>
+</div>
+
+<!-- HISTORY -->
+<div class="section" id="tab-history">
+  <div style="font-weight:600;font-size:15px;margin-bottom:12px;">Scan History</div>
+  <div id="historyList"><div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">Loading...</div></div></div>
+</div>
+
+</div>
+
+<!-- ADD SUPPLIER MODAL -->
+<div class="modal-overlay" id="supplierModal">
+  <div class="modal">
+    <div class="modal-title"><span id="supplierModalTitle">Add Supplier</span><span class="modal-close" onclick="closeModal('supplierModal')">✕</span></div>
+    <div class="input-group">
+      <label class="input-label">Supplier Name</label>
+      <input class="input" id="supplierName" placeholder="e.g. Krinos, Bosa Foods">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Upload Price List (PDF or Image)</label>
+      <div class="upload-area">
+        <input type="file" id="supplierFileInput" accept=".pdf,image/*" onchange="handleSupplierFile(event)">
+        <div class="upload-icon">📄</div>
+        <div class="upload-text" id="supplierUploadText"><strong>Tap to upload</strong><br>Full price list PDF</div>
+      </div>
+    </div>
+    <div id="supplierStatus" style="display:none;"></div>
+    <button class="btn btn-primary btn-full mt-12" onclick="saveSupplier()" id="btnSaveSupplier">Save Supplier</button>
+  </div>
+</div>
+
+<!-- HISTORY DETAIL MODAL -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal">
+    <div class="modal-title"><span id="historyModalTitle">Scan Details</span><span class="modal-close" onclick="closeModal('historyModal')">✕</span></div>
+    <div id="historyModalContent"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, limit }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+// ── Firebase ──────────────────────────────────────────────────────────────────
+const app = initializeApp({
+  apiKey: "AIzaSyCdbiZxzom0eHp92Uwzs2fDCIzvPuKjeF4",
+  authDomain: "persiafoods.firebaseapp.com",
+  projectId: "persiafoods",
+  storageBucket: "persiafoods.firebasestorage.app",
+  messagingSenderId: "442046919001",
+  appId: "1:442046919001:web:6b8608b6781cb867a71c48"
+});
+const db = getFirestore(app);
+const SUPPLIERS_COL = 'pt_suppliers';
+const HISTORY_COL   = 'pt_history';
+
+// ── pdf.js ────────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const MAX_PDF_PAGES = 6;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let suppliers = [], scanHistory = [];
+let capturedImageData = null, uploadedFile = null, cameraStream = null;
+let currentSupplierEditId = null, currentResults = [], inputMethod = 'camera';
+let supplierFile = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await Promise.all([loadSuppliers(), loadHistory()]);
+    document.getElementById('loadingScreen').style.display = 'none';
+    document.getElementById('syncDot').className = 'sync-dot';
+    document.getElementById('syncLabel').textContent = 'Live';
+  } catch(e) {
+    document.getElementById('loadingScreen').querySelector('p').textContent = 'Error: ' + e.message;
+    document.getElementById('syncDot').className = 'sync-dot offline';
+  }
+}
+
+async function loadSuppliers() {
+  const snap = await getDocs(collection(db, SUPPLIERS_COL));
+  suppliers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderSuppliers(); renderScanSuppliers();
+}
+
+async function loadHistory() {
+  const q = query(collection(db, HISTORY_COL), orderBy('timestamp','desc'), limit(50));
+  const snap = await getDocs(q);
+  scanHistory = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderHistory();
+}
+
+// ── PDF → images ──────────────────────────────────────────────────────────────
+async function pdfToImages(arrayBuffer, statusId) {
+  const pdf   = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const total = Math.min(pdf.numPages, MAX_PDF_PAGES);
+  const images = [];
+  for (let i = 1; i <= total; i++) {
+    showStatus(statusId, 'loading', `Converting PDF… page ${i} / ${total}`, (i / total) * 55);
+    const page     = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas   = document.createElement('canvas');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    images.push(canvas.toDataURL('image/jpeg', 0.88).split(',')[1]);
+  }
+  return images;
+}
+
+// ── Claude API — goes through Netlify proxy ───────────────────────────────────
+const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const API_URL      = '/api/claude'; // ← Netlify function proxy
+
+const PRICE_PROMPT = name =>
+  `Extract ALL product prices from this supplier document for "${name}".
+Return ONLY a valid JSON array — no markdown, no explanation.
+Each item: {"code":"","name":"","price":0.00,"unit":""}
+Rules: price must be a number; use "" for missing codes; unit examples: each, kg, lb, case/6.`;
+
+async function callClaude(contentBlocks) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: contentBlocks }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content.map(c => c.text || '').join('');
+}
+
+function parseJSON(raw) {
+  const clean = raw.replace(/```json|```/g, '').trim();
+  try { return JSON.parse(clean); } catch(_) {}
+  const m = clean.match(/\[[\s\S]*\]/);
+  if (m) return JSON.parse(m[0]);
+  throw new Error('Could not parse AI response. Try again.');
+}
+
+async function extractPrices(file, supplierName, statusId) {
+  if (file.type === 'application/pdf') {
+    const buf    = await file.arrayBuffer();
+    const images = await pdfToImages(buf, statusId);
+    showStatus(statusId, 'loading', `Analysing ${images.length} page(s) with AI…`, 70);
+    const content = images.map(b64 =>
+      ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } })
+    );
+    content.push({ type: 'text', text: PRICE_PROMPT(supplierName) });
+    return parseJSON(await callClaude(content));
+  } else {
+    const b64 = await fileToBase64(file);
+    return parseJSON(await callClaude([
+      { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: b64 } },
+      { type: 'text',  text: PRICE_PROMPT(supplierName) }
+    ]));
+  }
+}
+
+async function extractFromDataURL(dataURL, supplierName) {
+  const b64  = dataURL.split(',')[1];
+  const mime = (dataURL.match(/data:([^;]+);/) || [])[1] || 'image/jpeg';
+  return parseJSON(await callClaude([
+    { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
+    { type: 'text',  text: PRICE_PROMPT(supplierName) }
+  ]));
+}
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload  = e => res(e.target.result.split(',')[1]);
+    r.onerror = () => rej(new Error('File read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function showStatus(id, type, msg, pct) {
+  const el = document.getElementById(id);
+  el.style.display = 'flex'; el.className = 'status-bar status-' + type;
+  const icon = type === 'loading' ? '<div class="spinner"></div>' : type === 'success' ? '✅' : '❌';
+  const bar  = (type === 'loading' && pct != null)
+    ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : '';
+  el.innerHTML = `<div class="status-bar-row">${icon}<span>${msg}</span></div>${bar}`;
+}
+function hideStatus(id) { document.getElementById(id).style.display = 'none'; }
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+window.switchTab = (tab, el) => {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  el.classList.add('active');
+  if (tab === 'history') loadHistory();
+};
+
+// ── Input method ──────────────────────────────────────────────────────────────
+window.setInputMethod = method => {
+  inputMethod = method;
+  document.getElementById('cameraSection').style.display = method === 'camera' ? 'block' : 'none';
+  document.getElementById('uploadSection').style.display  = method === 'upload'  ? 'block' : 'none';
+  const a = 'var(--accent)';
+  document.getElementById('btnCamera').style.cssText =
+    method === 'camera' ? `border-color:${a};color:${a}` : '';
+  document.getElementById('btnUpload').style.cssText =
+    method === 'upload' ? `border-color:${a};color:${a}` : '';
+  if (method !== 'camera') stopCamera();
+};
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+window.startCamera = async () => {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    document.getElementById('cameraFeed').srcObject = cameraStream;
+    document.getElementById('cameraArea').style.display     = 'block';
+    document.getElementById('btnStartCamera').style.display = 'none';
+    document.getElementById('btnCapture').style.display     = 'flex';
+    document.getElementById('capturedImg').style.display    = 'none';
+    capturedImageData = null;
+  } catch(e) { showStatus('scanStatus', 'error', 'Camera not available — use Upload instead.'); }
+};
+window.capturePhoto = () => {
+  const v = document.getElementById('cameraFeed');
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  capturedImageData = c.toDataURL('image/jpeg', 0.92);
+  const img = document.getElementById('capturedImg');
+  img.src = capturedImageData; img.style.display = 'block';
+  document.getElementById('cameraArea').style.display   = 'none';
+  document.getElementById('btnCapture').style.display   = 'none';
+  document.getElementById('btnRetake').style.display    = 'flex';
+  stopCamera();
+};
+window.retakePhoto = () => {
+  capturedImageData = null;
+  document.getElementById('capturedImg').style.display    = 'none';
+  document.getElementById('btnRetake').style.display      = 'none';
+  document.getElementById('btnStartCamera').style.display = 'flex';
+};
+function stopCamera() {
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+}
+
+// ── File handlers ─────────────────────────────────────────────────────────────
+window.handleFileUpload = e => {
+  const f = e.target.files[0]; if (!f) return;
+  uploadedFile = f;
+  const icon = f.type === 'application/pdf' ? '📄' : '🖼';
+  document.getElementById('uploadText').innerHTML = `<strong>${icon} ${f.name}</strong><br>Ready to scan`;
+};
+window.handleSupplierFile = e => {
+  const f = e.target.files[0]; if (!f) return;
+  supplierFile = f;
+  const icon = f.type === 'application/pdf' ? '📄' : '🖼';
+  document.getElementById('supplierUploadText').innerHTML = `<strong>${icon} ${f.name}</strong><br>Ready`;
+};
+
+// ── Save Supplier ─────────────────────────────────────────────────────────────
+window.saveSupplier = async () => {
+  const name = document.getElementById('supplierName').value.trim();
+  if (!name)         { alert('Please enter a supplier name.'); return; }
+  if (!supplierFile) { alert('Please upload the price list.'); return; }
+
+  showStatus('supplierStatus', 'loading', 'Processing price list…', 10);
+  document.getElementById('btnSaveSupplier').disabled = true;
+
+  try {
+    const prices = await extractPrices(supplierFile, name, 'supplierStatus');
+    if (!prices || !prices.length) throw new Error('No prices found in the document.');
+
+    const id    = currentSupplierEditId || Date.now().toString();
+    const today = new Date().toLocaleDateString('en-CA');
+    const supplier = { id, name, fileName: supplierFile.name, uploadDate: today, prices };
+
+    await setDoc(doc(db, SUPPLIERS_COL, id),
+      { name, fileName: supplierFile.name, uploadDate: today, prices });
+
+    if (currentSupplierEditId) suppliers = suppliers.map(s => s.id === id ? supplier : s);
+    else suppliers.push(supplier);
+
+    showStatus('supplierStatus', 'success', `${prices.length} products loaded & saved ☁️`);
+    setTimeout(() => { closeModal('supplierModal'); renderSuppliers(); renderScanSuppliers(); }, 1400);
+  } catch(e) {
+    showStatus('supplierStatus', 'error', e.message);
+  }
+  document.getElementById('btnSaveSupplier').disabled = false;
+};
+
+// ── Run Scan ──────────────────────────────────────────────────────────────────
+window.runScan = async () => {
+  const supplierId = document.getElementById('scanSupplier').value;
+  if (!supplierId) { alert('Please select a supplier.'); return; }
+  const supplier = suppliers.find(s => s.id === supplierId); if (!supplier) return;
+
+  if (inputMethod === 'camera' && !capturedImageData) { alert('Please capture a photo first.'); return; }
+  if (inputMethod === 'upload' && !uploadedFile)       { alert('Please upload a file first.'); return; }
+
+  showStatus('scanStatus', 'loading', 'Reading invoice…', 10);
+  document.getElementById('btnScan').disabled = true;
+  document.getElementById('scanResults').style.display = 'none';
+
+  try {
+    let invoiceItems;
+    if (inputMethod === 'camera') {
+      showStatus('scanStatus', 'loading', 'Analysing photo with AI…', 40);
+      invoiceItems = await extractFromDataURL(capturedImageData, supplier.name);
+    } else {
+      invoiceItems = await extractPrices(uploadedFile, supplier.name, 'scanStatus');
+    }
+    if (!invoiceItems || !invoiceItems.length) throw new Error('No products found in invoice.');
+
+    showStatus('scanStatus', 'loading', `Comparing ${invoiceItems.length} items…`, 90);
+
+    const today   = new Date().toLocaleDateString('en-CA');
+    const results = invoiceItems.map(item => {
+      const match = findMatch(item, supplier.prices);
+      if (match) {
+        const diff = parseFloat((item.price - match.price).toFixed(2));
+        const pct  = match.price > 0 ? parseFloat(((diff / match.price) * 100).toFixed(1)) : 0;
+        return {
+          code: item.code || match.code || '', name: item.name,
+          unit: item.unit || match.unit || '',
+          oldPrice: match.price, newPrice: item.price, diff, pct,
+          status: diff > 0.01 ? 'up' : diff < -0.01 ? 'down' : 'same'
+        };
+      }
+      return { code: item.code || '', name: item.name, unit: item.unit || '',
+               oldPrice: null, newPrice: item.price, diff: null, pct: null, status: 'new' };
+    });
+
+    for (const r of results) {
+      if (r.status === 'up' || r.status === 'down') {
+        const idx = supplier.prices.findIndex(p =>
+          (p.code && r.code && p.code.trim() === r.code.trim()) ||
+          wordSim(normalize(p.name), normalize(r.name)) > 0.55
+        );
+        if (idx !== -1) {
+          if (!supplier.prices[idx].history) supplier.prices[idx].history = [];
+          supplier.prices[idx].history.push({ date: today, oldPrice: supplier.prices[idx].price, newPrice: r.newPrice });
+          supplier.prices[idx].price       = r.newPrice;
+          supplier.prices[idx].lastUpdated = today;
+        }
+      } else if (r.status === 'new') {
+        supplier.prices.push({ code: r.code, name: r.name, price: r.newPrice,
+          unit: r.unit, lastUpdated: today, history: [] });
+      }
+    }
+
+    await setDoc(doc(db, SUPPLIERS_COL, supplierId),
+      { name: supplier.name, fileName: supplier.fileName,
+        uploadDate: supplier.uploadDate, prices: supplier.prices });
+    suppliers = suppliers.map(s => s.id === supplierId ? supplier : s);
+
+    const histId = Date.now().toString();
+    const record = {
+      id: histId, supplierId, supplierName: supplier.name, date: today,
+      time: new Date().toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' }),
+      results, timestamp: Date.now()
+    };
+    await setDoc(doc(db, HISTORY_COL, histId), record);
+    scanHistory.unshift(record);
+
+    currentResults = results;
+    const changed = results.filter(r => r.status === 'up' || r.status === 'down').length;
+    showStatus('scanStatus', 'success', `${invoiceItems.length} items · ${changed} price changes · Saved ☁️`);
+    renderResults(results);
+    document.getElementById('scanResults').style.display = 'block';
+  } catch(e) {
+    showStatus('scanStatus', 'error', e.message);
+  }
+  document.getElementById('btnScan').disabled = false;
+};
+
+// ── Matching ──────────────────────────────────────────────────────────────────
+function normalize(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function wordSim(a, b) {
+  const A = new Set(a.split(' ').filter(w => w.length > 2));
+  const B = new Set(b.split(' ').filter(w => w.length > 2));
+  if (!A.size || !B.size) return 0;
+  let n = 0; A.forEach(w => { if (B.has(w)) n++; });
+  return (2 * n) / (A.size + B.size);
+}
+function findMatch(item, list) {
+  if (item.code) {
+    const m = list.find(p => p.code && p.code.trim() === item.code.trim());
+    if (m) return m;
+  }
+  const norm = normalize(item.name);
+  let best = null, top = 0;
+  for (const p of list) {
+    const s = wordSim(norm, normalize(p.name));
+    if (s > top && s > 0.55) { top = s; best = p; }
+  }
+  return best;
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+function renderResults(results) {
+  const up   = results.filter(r => r.status === 'up').length;
+  const down = results.filter(r => r.status === 'down').length;
+  const rest = results.filter(r => r.status === 'same' || r.status === 'new').length;
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-card"><div class="stat-num" style="color:var(--red)">${up}</div><div class="stat-label">Higher</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--green)">${down}</div><div class="stat-label">Lower</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--text2)">${rest}</div><div class="stat-label">Same/New</div></div>`;
+  document.getElementById('resultDate').textContent = new Date().toLocaleDateString('en-CA');
+  document.querySelectorAll('.filter-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  renderList(results, 'all');
+}
+window.filterResults = (filter, el) => {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderList(currentResults, filter);
+};
+function renderList(results, filter) {
+  let f = results;
+  if (filter === 'changed') f = results.filter(r => r.status === 'up' || r.status === 'down');
+  else if (filter === 'up')   f = results.filter(r => r.status === 'up');
+  else if (filter === 'down') f = results.filter(r => r.status === 'down');
+  else if (filter === 'same') f = results.filter(r => r.status === 'same' || r.status === 'new');
+  const el = document.getElementById('resultsList');
+  if (!f.length) { el.innerHTML = '<div class="empty" style="padding:24px"><div class="empty-text">No items here.</div></div>'; return; }
+  el.innerHTML = f.map(r => {
+    const isC = r.status === 'up' || r.status === 'down';
+    const pH = r.oldPrice !== null
+      ? `<div class="price-col">
+          ${isC ? `<div class="price-old">$${r.oldPrice.toFixed(2)}</div>` : ''}
+          <div class="price-new ${r.status==='up'?'price-up':r.status==='down'?'price-down':''}">$${r.newPrice.toFixed(2)}</div>
+          ${isC ? `<div class="price-diff ${r.status==='up'?'price-up':'price-down'}">${r.diff>=0?'+$':'−$'}${Math.abs(r.diff).toFixed(2)} (${r.pct>=0?'+':''}${r.pct}%)</div>` : ''}
+        </div>`
+      : `<div class="price-col"><div class="price-new" style="color:var(--accent)">$${r.newPrice.toFixed(2)}</div><div class="price-diff" style="color:var(--accent)">NEW</div></div>`;
+    return `<div class="price-item ${isC?'changed':r.status==='same'?'same':''}">
+      <div><div class="item-name">${r.name}</div><div class="item-meta">${r.code ? r.code + ' · ' : ''}${r.unit || ''}</div></div>${pH}</div>`;
+  }).join('');
+}
+
+// ── Suppliers ─────────────────────────────────────────────────────────────────
+window.openAddSupplier = () => {
+  currentSupplierEditId = null; supplierFile = null;
+  document.getElementById('supplierName').value = '';
+  document.getElementById('supplierUploadText').innerHTML = '<strong>Tap to upload</strong><br>Full price list PDF';
+  document.getElementById('supplierModalTitle').textContent = 'Add Supplier';
+  hideStatus('supplierStatus'); openModal('supplierModal');
+};
+function renderSuppliers() {
+  const el = document.getElementById('supplierList');
+  if (!suppliers.length) { el.innerHTML = `<div class="empty"><div class="empty-icon">🏪</div><div class="empty-text">No suppliers yet.</div></div>`; return; }
+  el.innerHTML = suppliers.map(s => `
+    <div class="supplier-item">
+      <div><div class="supplier-name">${s.name}</div><div class="supplier-meta">${s.prices.length} products · ${s.uploadDate}</div></div>
+      <div class="supplier-actions">
+        <button class="btn btn-outline btn-sm" onclick="updatePriceList('${s.id}')">↻ Update</button>
+        <button class="btn btn-danger btn-sm"  onclick="deleteSupplier('${s.id}')">✕</button>
+      </div>
+    </div>`).join('');
+}
+function renderScanSuppliers() {
+  const sel = document.getElementById('scanSupplier'), prev = sel.value;
+  sel.innerHTML = '<option value="">— Select Supplier —</option>' +
+    suppliers.map(s => `<option value="${s.id}">${s.name} (${s.prices.length} items)</option>`).join('');
+  if (prev) sel.value = prev;
+}
+window.deleteSupplier = async id => {
+  if (!confirm('Delete this supplier and all their prices?')) return;
+  await deleteDoc(doc(db, SUPPLIERS_COL, id));
+  suppliers = suppliers.filter(s => s.id !== id);
+  renderSuppliers(); renderScanSuppliers();
+};
+window.updatePriceList = id => {
+  const s = suppliers.find(x => x.id === id); if (!s) return;
+  currentSupplierEditId = id; supplierFile = null;
+  document.getElementById('supplierName').value = s.name;
+  document.getElementById('supplierUploadText').innerHTML =
+    `<strong>Tap to upload new list</strong><br>Replaces current ${s.prices.length} products`;
+  document.getElementById('supplierModalTitle').textContent = 'Update: ' + s.name;
+  hideStatus('supplierStatus'); openModal('supplierModal');
+};
+
+// ── History ───────────────────────────────────────────────────────────────────
+function renderHistory() {
+  const el = document.getElementById('historyList');
+  if (!scanHistory.length) { el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No scans yet.</div></div>`; return; }
+  el.innerHTML = scanHistory.map(h => {
+    const up = h.results.filter(r => r.status === 'up').length;
+    const down = h.results.filter(r => r.status === 'down').length;
+    return `<div class="history-item" onclick="showHistory('${h.id}')">
+      <div class="history-date">${h.date} ${h.time}</div>
+      <div class="history-title">${h.supplierName}</div>
+      <div class="history-badges">
+        ${up   > 0 ? `<span class="badge badge-red">↑ ${up} higher</span>`   : ''}
+        ${down > 0 ? `<span class="badge badge-green">↓ ${down} lower</span>` : ''}
+        <span class="badge badge-gray">${h.results.length} items</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+window.showHistory = id => {
+  const h = scanHistory.find(x => x.id === id); if (!h) return;
+  document.getElementById('historyModalTitle').textContent = h.supplierName + ' · ' + h.date;
+  const changed = h.results.filter(r => r.status !== 'same');
+  document.getElementById('historyModalContent').innerHTML = !changed.length
+    ? '<div class="empty"><div class="empty-text">No price changes in this scan.</div></div>'
+    : '<div style="overflow:hidden;border-radius:8px;border:1px solid var(--border)">' +
+      changed.map(r => {
+        const d = r.diff != null ? (r.diff >= 0 ? '+$' : '−$') + Math.abs(r.diff).toFixed(2) : 'NEW';
+        return `<div class="price-item ${r.status === 'up' ? 'changed' : ''}">
+          <div><div class="item-name">${r.name}</div><div class="item-meta">${r.code || ''} ${r.unit || ''}</div></div>
+          <div class="price-col">
+            ${r.oldPrice != null ? `<div class="price-old">$${r.oldPrice.toFixed(2)}</div>` : ''}
+            <div class="price-new ${r.status==='up'?'price-up':r.status==='down'?'price-down':''}">$${r.newPrice.toFixed(2)}</div>
+            <div class="price-diff ${r.status==='up'?'price-up':'price-down'}">${d}</div>
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+  openModal('historyModal');
+};
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+window.openModal  = id => document.getElementById(id).classList.add('open');
+window.closeModal = id => document.getElementById(id).classList.remove('open');
+document.querySelectorAll('.modal-overlay').forEach(o =>
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }));
+
+init();
+</script>
+</body>
+</html>
