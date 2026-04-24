@@ -24,7 +24,6 @@ exports.handler = async (event) => {
     const footerBuf = Buffer.from(footer, 'utf8');
     const body      = Buffer.concat([headerBuf, fileBuf, footerBuf]);
 
-    // Step 1: Enqueue
     const enqueueRes = await fetch('https://api-v2.mindee.net/v2/inferences/enqueue', {
       method: 'POST',
       headers: {
@@ -44,7 +43,6 @@ exports.handler = async (event) => {
       return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'No polling URL: ' + JSON.stringify(enqueueData) } }) };
     }
 
-    // Step 2: Poll for result
     let result = null;
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 3000));
@@ -62,12 +60,20 @@ exports.handler = async (event) => {
       return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'Timeout waiting for Mindee result' } }) };
     }
 
-    const fields = result?.inference?.result?.fields || {};
+    // Log full result for debugging
+    const rawResult = JSON.stringify(result).slice(0, 500);
+    
+    const fields = result?.inference?.result?.fields || 
+                   result?.document?.inference?.prediction || 
+                   result?.job?.result?.fields || {};
+    
     const items = [];
-    const lineItems = fields.line_items || [];
+    const lineItems = Array.isArray(fields.line_items) ? fields.line_items : 
+                      Array.isArray(fields.lineItems) ? fields.lineItems : [];
+
     for (const item of lineItems) {
-      const name  = item.description?.value || '';
-      const price = parseFloat(item.unit_price?.value || 0);
+      const name  = item.description?.value || item.name?.value || '';
+      const price = parseFloat(item.unit_price?.value || item.price?.value || 0);
       if (name && price > 0) {
         items.push({
           code:  item.product_code?.value || '',
@@ -75,6 +81,14 @@ exports.handler = async (event) => {
           unit:  item.unit_measure?.value || 'each',
         });
       }
+    }
+
+    // If no items found, return raw for debugging
+    if (items.length === 0) {
+      return {
+        statusCode: 200, headers,
+        body: JSON.stringify({ error: { message: 'No items found. Raw: ' + rawResult } })
+      };
     }
 
     return {
