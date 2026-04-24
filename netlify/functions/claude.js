@@ -11,6 +11,7 @@ exports.handler = async (event) => {
   try {
     const { imageBase64, mimeType } = JSON.parse(event.body);
     const mindeeKey = process.env.MINDEE_API_KEY;
+    const modelId = '16f85210-31f1-4f02-892b-ff650cdb8dd8';
 
     const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
     const filename = (mimeType === 'application/pdf') ? 'invoice.pdf' : 'invoice.jpg';
@@ -24,13 +25,13 @@ exports.handler = async (event) => {
     const body      = Buffer.concat([headerBuf, fileBuf, footerBuf]);
 
     const mindeeRes = await fetch(
-      'https://api.mindee.net/v1/products/mindee/invoices/v4/predict',
+      `https://api.mindee.net/v2/inferences`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Token ${mindeeKey}`,
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': body.length,
+          'X-Mindee-Model-Id': modelId,
         },
         body,
       }
@@ -39,20 +40,29 @@ exports.handler = async (event) => {
     const text = await mindeeRes.text();
     let mindeeData;
     try { mindeeData = JSON.parse(text); } catch(_) {
-      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'Mindee returned: ' + text.slice(0, 200) } }) };
+      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'Mindee: ' + text.slice(0, 300) } }) };
     }
 
     if (!mindeeRes.ok) {
       return { statusCode: mindeeRes.status, headers, body: JSON.stringify({ error: { message: JSON.stringify(mindeeData) } }) };
     }
 
-    const prediction = mindeeData?.document?.inference?.prediction;
-    const items = (prediction?.line_items || []).map(item => ({
-      code:  item.product_code?.value || '',
-      name:  item.description?.value  || '',
-      price: parseFloat(item.unit_price?.value || 0),
-      unit:  item.unit_measure?.value || 'each',
-    })).filter(i => i.name && i.price > 0);
+    const fields = mindeeData?.inference?.result?.fields || {};
+    const items = [];
+    
+    if (fields.line_items) {
+      for (const item of fields.line_items) {
+        const name = item.description?.value || '';
+        const price = parseFloat(item.unit_price?.value || 0);
+        if (name && price > 0) {
+          items.push({
+            code: item.product_code?.value || '',
+            name, price,
+            unit: item.unit_measure?.value || 'each',
+          });
+        }
+      }
+    }
 
     return {
       statusCode: 200, headers,
