@@ -304,83 +304,8 @@ async function loadHistory() {
   renderHistory();
 }
 
-// ── PDF → images ──────────────────────────────────────────────────────────────
-async function pdfToImages(arrayBuffer, statusId) {
-  const pdf   = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const total = Math.min(pdf.numPages, MAX_PDF_PAGES);
-  const images = [];
-  for (let i = 1; i <= total; i++) {
-    showStatus(statusId, 'loading', `Converting PDF… page ${i} / ${total}`, (i / total) * 55);
-    const page     = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas   = document.createElement('canvas');
-    canvas.width = viewport.width; canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    images.push(canvas.toDataURL('image/jpeg', 0.88).split(',')[1]);
-  }
-  return images;
-}
-
-// ── Claude API — goes through Netlify proxy ───────────────────────────────────
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
-const API_URL      = '/api/claude'; // ← Netlify function proxy
-
-const PRICE_PROMPT = name =>
-  `Extract ALL product prices from this supplier document for "${name}".
-Return ONLY a valid JSON array — no markdown, no explanation.
-Each item: {"code":"","name":"","price":0.00,"unit":""}
-Rules: price must be a number; use "" for missing codes; unit examples: each, kg, lb, case/6.`;
-
-async function callClaude(contentBlocks) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: contentBlocks }]
-    })
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.content.map(c => c.text || '').join('');
-}
-
-function parseJSON(raw) {
-  const clean = raw.replace(/```json|```/g, '').trim();
-  try { return JSON.parse(clean); } catch(_) {}
-  const m = clean.match(/\[[\s\S]*\]/);
-  if (m) return JSON.parse(m[0]);
-  throw new Error('Could not parse AI response. Try again.');
-}
-
-async function extractPrices(file, supplierName, statusId) {
-  if (file.type === 'application/pdf') {
-    const buf    = await file.arrayBuffer();
-    const images = await pdfToImages(buf, statusId);
-    showStatus(statusId, 'loading', `Analysing ${images.length} page(s) with AI…`, 70);
-    const content = images.map(b64 =>
-      ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } })
-    );
-    content.push({ type: 'text', text: PRICE_PROMPT(supplierName) });
-    return parseJSON(await callClaude(content));
-  } else {
-    const b64 = await fileToBase64(file);
-    return parseJSON(await callClaude([
-      { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: b64 } },
-      { type: 'text',  text: PRICE_PROMPT(supplierName) }
-    ]));
-  }
-}
-
-async function extractFromDataURL(dataURL, supplierName) {
-  const b64  = dataURL.split(',')[1];
-  const mime = (dataURL.match(/data:([^;]+);/) || [])[1] || 'image/jpeg';
-  return parseJSON(await callClaude([
-    { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
-    { type: 'text',  text: PRICE_PROMPT(supplierName) }
-  ]));
-}
+// ── Mindee API — goes through Netlify proxy ───────────────────────────────────
+const API_URL = '/api/claude';
 
 function fileToBase64(file) {
   return new Promise((res, rej) => {
@@ -389,6 +314,39 @@ function fileToBase64(file) {
     r.onerror = () => rej(new Error('File read failed'));
     r.readAsDataURL(file);
   });
+}
+
+async function extractPrices(file, supplierName, statusId) {
+  showStatus(statusId, 'loading', 'Reading document with Mindee…', 40);
+  const b64 = await fileToBase64(file);
+  const mime = file.type || 'application/pdf';
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: b64, mimeType: mime })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+
+  const text = data.content?.[0]?.text || '[]';
+  try { return JSON.parse(text); } catch(_) { throw new Error('Could not parse response.'); }
+}
+
+async function extractFromDataURL(dataURL, supplierName) {
+  const b64  = dataURL.split(',')[1];
+  const mime = (dataURL.match(/data:([^;]+);/) || [])[1] || 'image/jpeg';
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: b64, mimeType: mime })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+
+  const text = data.content?.[0]?.text || '[]';
+  try { return JSON.parse(text); } catch(_) { throw new Error('Could not parse response.'); }
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
