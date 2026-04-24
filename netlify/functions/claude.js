@@ -11,7 +11,6 @@ exports.handler = async (event) => {
   try {
     const { imageBase64, mimeType } = JSON.parse(event.body);
     const mindeeKey = process.env.MINDEE_API_KEY;
-    const geminiKey = process.env.GEMINI_API_KEY;
     const modelId = 'c794b456-716f-4e8a-b693-700489a3f3a9';
 
     const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
@@ -64,48 +63,57 @@ exports.handler = async (event) => {
       ?.map(p => p.content).join('\n') || '';
 
     if (!rawText) {
-      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'No text from document' } }) };
+      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'No text extracted' } }) };
     }
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [{ text: `Extract ALL product prices from this supplier invoice.
-Return ONLY a valid JSON array, no markdown, no explanation.
-Each item: {"code":"","name":"","price":0.00,"unit":""}
-- price must be a number
-- unit examples: each, kg, lb, case
+    // Parse prices from raw text using pattern matching
+    const items = [];
+    const lines = rawText.split('\n');
 
-Invoice text:
-${rawText.slice(0, 10000)}` }]
-          }],
-          generationConfig: { maxOutputTokens: 4096 }
-        })
-      }
-    );
+    for (const line of lines) {
+      // Skip header/footer lines
+      if (!line.trim() || line.length < 5) continue;
+      if (/invoice|total|subtotal|tax|gst|hst|date|terms|ship|bill|phone|fax|page|address/i.test(line)) continue;
 
-    const geminiData = await geminiRes.json();
-    if (geminiData.error) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: { message: 'Gemini: ' + geminiData.error.message } }) };
+      // Look for price patterns: number followed by /CS, /EA, /KG, /LB or standalone price
+      const priceMatch = line.match(/\$?\s*(\d+\.?\d*)\s*\/?\s*(CS|EA|KG|LB|EACH|CASE|PC|BOX|BAG|PKG|TIN|JAR|BTL)?/i);
+      if (!priceMatch) continue;
+
+      const price = parseFloat(priceMatch[1]);
+      if (price < 0.5 || price > 9999) continue; // filter out quantities and invalid prices
+
+      // Extract product name — everything before the price
+      const beforePrice = line.substring(0, line.indexOf(priceMatch[0])).trim();
+      if (!beforePrice || beforePrice.length < 3) continue;
+
+      // Clean up name
+      const name = beforePrice
+        .replace(/^\d+\s+/, '') // remove leading numbers (qty)
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (name.length < 3) continue;
+
+      const unit = priceMatch[2] ? priceMatch[2].toUpperCase() : 'each';
+
+      items.push({ code: '', name, price, unit });
     }
 
-    const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    const clean = text.replace(/```json|```/g, '').trim();
+    // Deduplicate by name
+    const seen = new Set();
+    const unique = items.filter(i => {
+      if (seen.has(i.name)) return false;
+      seen.add(i.name);
+      return true;
+    });
 
-    let items;
-    try { items = JSON.parse(clean); } catch(_) {
-      const m = clean.match(/\[[\s\S]*\]/);
-      items = m ? JSON.parse(m[0]) : [];
+    if (unique.length === 0) {
+      return { statusCode: 200, headers, body: JSON.stringify({ error: { message: 'No prices found in: ' + rawText.slice(0, 200) } }) };
     }
 
     return {
       statusCode: 200, headers,
-      body: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(items) }] })
+      body: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(unique) }] })
     };
 
   } catch (e) {
