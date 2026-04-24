@@ -12,8 +12,8 @@ exports.handler = async (event) => {
     const { imageBase64, mimeType } = JSON.parse(event.body);
     const mindeeKey = process.env.MINDEE_API_KEY;
 
-    // Convert base64 to blob and send to Mindee
     const binaryStr = Buffer.from(imageBase64, 'base64');
+    const { FormData, Blob } = await import('node-fetch');
     const formData = new FormData();
     const blob = new Blob([binaryStr], { type: mimeType || 'application/pdf' });
     formData.append('document', blob, 'invoice.pdf');
@@ -26,10 +26,9 @@ exports.handler = async (event) => {
 
     const mindeeData = await mindeeRes.json();
     if (mindeeData.api_request?.error) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: { message: mindeeData.api_request.error.message } }) };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: { message: JSON.stringify(mindeeData.api_request.error) } }) };
     }
 
-    // Extract line items from Mindee response
     const prediction = mindeeData?.document?.inference?.prediction;
     const items = (prediction?.line_items || []).map(item => ({
       code: item.product_code?.value || '',
