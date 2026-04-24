@@ -11,6 +11,7 @@ exports.handler = async (event) => {
   try {
     const { imageBase64, mimeType } = JSON.parse(event.body);
     const mindeeKey = process.env.MINDEE_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
     const modelId = 'c794b456-716f-4e8a-b693-700489a3f3a9';
 
     const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
@@ -62,18 +63,45 @@ exports.handler = async (event) => {
     const rawText = result?.inference?.result?.raw_text?.pages
       ?.map(p => p.content).join('\n') || '';
 
-    const fields = result?.inference?.result?.fields || {};
-    const lineItems = Array.isArray(fields.line_items) ? fields.line_items : [];
+    if (!rawText) {
+      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'No text from document' } }) };
+    }
 
-    const items = lineItems.map(item => ({
-      code:  item.product_code?.value || '',
-      name:  item.description?.value  || '',
-      price: parseFloat(item.unit_price?.value || 0),
-      unit:  item.unit_measure?.value || 'each',
-    })).filter(i => i.name && i.price > 0);
+    // Send to Gemini as text (free)
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [{ text: `Extract ALL product prices from this supplier invoice.
+Return ONLY a valid JSON array, no markdown, no explanation.
+Each item: {"code":"","name":"","price":0.00,"unit":""}
+- price must be a number
+- unit examples: each, kg, lb, case
 
-    if (items.length === 0) {
-      return { statusCode: 200, headers, body: JSON.stringify({ error: { message: 'No items. Fields: ' + JSON.stringify(Object.keys(fields)) + ' Raw: ' + rawText.slice(0, 300) } }) };
+Invoice text:
+${rawText.slice(0, 10000)}` }]
+          }],
+          generationConfig: { maxOutputTokens: 4096 }
+        })
+      }
+    );
+
+    const geminiData = await geminiRes.json();
+    if (geminiData.error) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: { message: 'Gemini: ' + geminiData.error.message } }) };
+    }
+
+    const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const clean = text.replace(/```json|```/g, '').trim();
+
+    let items;
+    try { items = JSON.parse(clean); } catch(_) {
+      const m = clean.match(/\[[\s\S]*\]/);
+      items = m ? JSON.parse(m[0]) : [];
     }
 
     return {
