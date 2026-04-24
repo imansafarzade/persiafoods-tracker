@@ -79,25 +79,32 @@ exports.handler = async (event) => {
       return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'No text extracted from Mindee' } }) };
     }
 
-    // ── Step 3: Send to Groq ────────────────────────────────────────────────
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${groqKey}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        max_tokens: 4000,
-        temperature: 0,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a data extraction assistant. Extract ALL products from supplier invoices. Return ONLY a valid JSON array with no markdown, no backticks, no explanation.',
-          },
-          {
-            role: 'user',
-            content: `Extract ALL products from this supplier invoice text.
+    // ── Step 3: Split into chunks and send to Groq ──────────────────────────
+    const CHUNK_SIZE = 3000;
+    const chunks = [];
+    for (let i = 0; i < rawText.length; i += CHUNK_SIZE) {
+      chunks.push(rawText.slice(i, i + CHUNK_SIZE));
+    }
+
+    async function askGroq(text) {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          max_tokens: 2000,
+          temperature: 0,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a data extraction assistant. Extract ALL products from supplier invoices. Return ONLY a valid JSON array with no markdown, no backticks, no explanation.',
+            },
+            {
+              role: 'user',
+              content: `Extract ALL products from this supplier invoice text.
 
 Return ONLY a JSON array. Each item must have exactly:
 { "code": "string", "name": "string", "price": number, "unit": "string" }
@@ -109,44 +116,41 @@ Rules:
 - "name" is the product description — keep it clean and recognizable
 - Skip header rows, totals, subtotals, taxes, shipping lines
 - Extract EVERY single product line — do not skip any
+- If no products found in this section, return empty array []
 
 Invoice text:
-${rawText}`,
-          },
-        ],
-      }),
-    });
-
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'Groq API error: ' + errText } }) };
+${text}`,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error('Groq API error: ' + errText);
+      }
+      const data = await res.json();
+      return data?.choices?.[0]?.message?.content || '[]';
     }
 
-    const groqData = await groqRes.json();
-    const groqText = groqData?.choices?.[0]?.message?.content || '';
-
-    if (!groqText) {
-      return { statusCode: 500, headers, body: JSON.stringify({ error: { message: 'Empty response from Groq' } }) };
-    }
-
-    // ── Step 4: Parse JSON ──────────────────────────────────────────────────
+    // Process chunks with delay to avoid rate limiting
     let items = [];
-    try {
-      const clean = groqText.replace(/```json|```/g, '').trim();
-      items = JSON.parse(clean);
-    } catch (e) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: { message: 'Failed to parse Groq response: ' + groqText.slice(0, 300) } }),
-      };
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 1500));
+      try {
+        const groqText = await askGroq(chunks[i]);
+        const clean = groqText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        if (Array.isArray(parsed)) items = items.concat(parsed);
+      } catch (e) {
+        // skip unparseable chunk
+      }
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!items.length) {
       return { statusCode: 200, headers, body: JSON.stringify({ error: { message: 'No products found in invoice' } }) };
     }
 
-    // ── Step 5: Sanitize & deduplicate ──────────────────────────────────────
+    // ── Step 4: Sanitize & deduplicate ──────────────────────────────────────
     const seen = new Set();
     const unique = items
       .filter(item => {
